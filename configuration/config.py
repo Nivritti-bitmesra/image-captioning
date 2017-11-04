@@ -36,7 +36,7 @@ class TrainingConfig(object):
     def __init__(self):
 
         ## Paths to appropriate directories for dataset
-        self.train_base_dir = '/media/srivatsa/982ED6FB2ED6D17C/caption_data/train'
+        self.train_base_dir = '/media/srivatsa/982ED6FB2ED6D17C/caption_data/eval'
         self.eval_base_dir = '/media/srivatsa/982ED6FB2ED6D17C/caption_data/eval'
         self.log_dir = '/home/srivatsa/Desktop/cs231n/ImageCaptioningModel/log_dir/'
 

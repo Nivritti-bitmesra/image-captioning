@@ -20,13 +20,14 @@ class ImageCaptioning(object):
         self.mode = mode
 
         # All Image Related Variables
+
         # A float32 tensor of shape [height, width, channels]
         self.inference_image = None
+
         # A float32 tensor of shape [batch_size,feature_size]
         self.image_features = None
         # A float32 tensor with shape [batch_size, embedding_size]
         self.image_embeddings = None
-
         # All Caption Related values
         # A int32 tensor with shape [batch_size, padded_length]
         self.input_sequence = None
@@ -36,6 +37,7 @@ class ImageCaptioning(object):
         self.target_sequence = None
         # A int32 tensor with shape [batch_size, padded_length]
         self.input_mask = None
+
 
         # All Losses
         # A float32 scalar
@@ -52,47 +54,44 @@ class ImageCaptioning(object):
         # Global Step Variable
         self.global_step = None
 
-    def add_placeholders(self):
+    def feed_input(self, parameter_map):
         """
-        Add appropriate placeholder as per following condition
+        param:
+        parameter_map: A map containing input data as per the condition.
+
+        Add appropriate parameters as per following condition
         1) In Training mode:
-            # self.image_feature: VGG16 Features
+            # self.image_features: VGG16 Features
             # self.input_sequence: Input Sequence of Caption
             # self.target_sequence: Target Sequence of Caption
             # self.input_mask: Mask for Input Sequence of Caption
         2) In Testing mode:
-            # self.image_feature: VGG16 Features
+            # self.image_features: VGG16 Features
             # self.input_feed: The input to LSTM cell
             # self.state_feed: The state input to LSTM cell
         3) In Inference mode:
             # self.inference_image: The input image
             # self.input_feed: The input to LSTM cell
             # self.state_feed: The state input to LSTM cell
-            """
-        print("Adding %s mode placeholder" % (self.mode))
+        """
+        print("Feeding inputs in %s mode" % (self.mode))
 
-        if self.mode == 'train':
-            self.image_features = tf.placeholder(tf.float32, name="image_features", shape=(
-                None, self.config.image_feature_dimension))
-            self.input_sequence = tf.placeholder(tf.int32, name="input_sequence", shape=(
-                None, self.config.fixed_padded_length))
-            self.target_sequence = tf.placeholder(tf.int32, name="target_sequence", shape=(
-                None, self.config.fixed_padded_length))
-            self.input_mask = tf.placeholder(tf.int32, name="input_mask", shape=(
-                None, self.config.fixed_padded_length))
-
-        else:
-            if self.mode == 'inference':
-                self.inference_image = tf.placeholder(tf.float32, name="inference_image", shape=(
-                    self.config.image_height, self.config.image_width, 3))
+        try:
+            if self.mode == 'train':
+                self.image_features = parameter_map['image_features']
+                self.input_sequence = parameter_map['input_sequence']
+                self.target_sequence = parameter_map['target_sequence']
+                self.input_mask = parameter_map['input_mask']
+            elif self.mode == 'test':
+                self.image_features = parameter_map['image_features']
+                self.input_feed = parameter_map['input_feed']
+                self.state_feed = parameter_map['state_feed']
             else:
-                self.image_features = tf.placeholder(tf.float32, name="image_feature", shape=(
-                    None, self.image_feature_dimension))
-
-            self.input_feed = tf.placeholder(tf.float32, name="input_feed")
-            self.input_sequence = tf.expand_dims(self.input_feed, 1)
-
-            self.state_feed = tf.placeholder(tf.float32, name="state_feed")
+                self.inference_image = parameter_map['inference_image']
+                self.input_feed = parameter_map['input_feed']
+                self.state_feed = parameter_map['state_feed']
+        except KeyError as ex:
+            print('The following parameter was not passed: %s' % e.args[0])
 
     def build_image_features_graph(self, image):
         """
@@ -181,10 +180,11 @@ class ImageCaptioning(object):
                 input_keep_prob=self.config.lstm_dropout_keep_prob,
                 output_keep_prob=self.config.lstm_dropout_keep_prob
             )
+
         with tf.variable_scope("lstm", self.intializer) as lstm_scope:
             # Set the intial state of the variable
             # This basically generates initial state of the lstm_cell
-            #first, the run one iteration of lstm_cell with image embedding
+            # first, the run one iteration of lstm_cell with image embedding
             # as the input to generate h0 state
             zero_state = lstm_cell.zero_state(
                 batch_size=tf.shape(image_embeddings)[0], dtype=tf.float32)
@@ -204,13 +204,13 @@ class ImageCaptioning(object):
                                                     inputs=input_sequence_embeddings,
                                                     sequence_length=sequence_length,
                                                     initial_state=intial_state,
+                                                    # Transfor output of LSTM cell from lstm output space(Basically Hidden states)
                                                     dtype=tf.float32,
                                                     scope=lstm_scope)
 
         # [batch_size, padded_length, output_size] -> [batch_size*padded_length, output_size]
         lstm_outputs = tf.reshape(lstm_outputs, [-1, lstm_cell.output_size])
 
-        # Transfor output of LSTM cell from lstm output space(Basically Hidden states)
         # to vocabulary space
         with tf.variable_scope("logits") as logits_scope:
             logits = tf.contrib.layers.fully_connected(
@@ -272,8 +272,6 @@ class ImageCaptioning(object):
         with tf.device('/cpu:0'):
             print("Building graph for %s mode" % (self.mode))
 
-            self.add_placeholders()
-
             if self.mode == "inference":
                 self.image_features = self.build_image_features_graph(
                     self.inference_image)
@@ -282,8 +280,11 @@ class ImageCaptioning(object):
                 self.image_features)
             self.input_sequence_embeddings = self.build_caption_sequence_map_graph(
                 self.input_sequence)
-            packed_values = self.build_model_graph(self.image_embeddings, self.input_sequence_embeddings,
-                                                   self.target_sequence, self.input_mask)
+            packed_values = self.build_model_graph(self.image_embeddings,
+                                                   self.input_sequence_embeddings,
+                                                   self.target_sequence,
+                                                   self.input_mask)
+
             if self.mode == "train":
                 self.total_loss, self.target_cross_entropy_loss, self.target_cross_entropy_loss_weights = packed_values
                 self.global_step = self.setup_global_step()

@@ -13,9 +13,8 @@ train_config = TrainingConfig()
 ## Create Model
 print("Setting up model")
 model = ImageCaptioning(model_config,"train")
-model.build()
 print("Model Loaded")
 
-print("Traing Model")
+print("Training Model")
 train = TrainCaptionModel(model,train_config)
-train.train_model(restore_model=True)
+train.train_model(restore_model=False)
