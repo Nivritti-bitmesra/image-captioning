@@ -17,4 +17,4 @@ print("Model Loaded")
 
 print("Training Model")
 train = TrainCaptionModel(model,train_config)
-train.train_model(restore_model=False)
+train.train_model(restore_model=True)

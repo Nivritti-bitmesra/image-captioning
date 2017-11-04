@@ -17,9 +17,17 @@ class TrainCaptionModel(object):
         self.min_loss = None
         self.counter = 0
 
+    def _get_file_list(self, base_dir):
+        """
+        Lists all the files inside the base directory
+        """
+        files = map(lambda current_file: os.path.join(base_dir, current_file),
+            os.listdir(base_dir))
+        return files
+
     def _parse_sequence_example(self, serialized):
         context, sequence = tf.parse_single_sequence_example(serialized, context_features={
-            "image/vgg16_features": tf.FixedLenFeature([512], dtype=tf.float32)
+            "image/vgg16_features": tf.FixedLenFeature([self.train_config.image_features_dimension], dtype=tf.float32)
         },
             sequence_features={
             "image/caption_ids": tf.FixedLenSequenceFeature([], dtype=tf.int64),
@@ -41,13 +49,14 @@ class TrainCaptionModel(object):
         Set up training operation
         """
         print("Setting up training operations: ")
+        variable_learning_rate = self.train_config.initial_learning_rate
         if self.train_config.learning_rate_decay_factor > 0:
             num_batches_per_epoch = (self.train_config.num_examples_per_epoch_train /
                                      self.train_config.batch_size)
             decay_steps = int(num_batches_per_epoch *
                               self.train_config.num_epochs_per_decay)
 
-        variable_learning_rate = tf.train.exponential_decay(learning_rate=self.train_config.initial_learning_rate,
+            variable_learning_rate = tf.train.exponential_decay(learning_rate=self.train_config.initial_learning_rate,
                                                             global_step=self.model.global_step,
                                                             decay_steps=decay_steps,
                                                             decay_rate=self.train_config.learning_rate_decay_factor,
@@ -61,26 +70,28 @@ class TrainCaptionModel(object):
         """
         Add input graph to the overall model and build the entire graph.
         """
-        print('Setting up input: ')
-        file_names = tf.placeholder(
-            name="file_names", dtype=tf.string, shape=[None])
+        with tf.device('/gpu:0'):
+            print('Setting up input: ')
+            file_names = tf.placeholder(
+                name="file_names", dtype=tf.string, shape=[None])
 
-        dataset = tf.data.TFRecordDataset(file_names)
-        dataset = dataset.map(self._parse_sequence_example)
-        dataset = dataset.batch(self.train_config.batch_size)
-        iterator = dataset.make_initializable_iterator()
+            dataset = tf.data.TFRecordDataset(file_names)
+            dataset = dataset.map(self._parse_sequence_example)
+            dataset = dataset.batch(self.train_config.batch_size)
+            iterator = dataset.make_initializable_iterator()
 
-        image_features, input_sequence, target_sequence, input_mask = iterator.get_next()
+            image_features, input_sequence, target_sequence, input_mask = iterator.get_next()
 
-        parameter_map = {
-            "image_features": image_features,
-            "input_sequence": input_sequence,
-            "target_sequence": target_sequence,
-            "input_mask": input_mask
-        }
+            parameter_map = {
+                "image_features": image_features,
+                "input_sequence": input_sequence,
+                "target_sequence": target_sequence,
+                "input_mask": input_mask
+            }
 
-        self.model.feed_input(parameter_map)
-        self.model.build()
+        with tf.device('/gpu:0'):
+            self.model.feed_input(parameter_map)
+            self.model.build()
 
         return iterator.initializer
 
@@ -90,56 +101,39 @@ class TrainCaptionModel(object):
         """
         start = timeit.default_timer()
         net_loss = 0
-        loop_length = self.train_config.num_examples_per_epoch_train / \
-            self.train_config.batch_size
 
-        train_files = map(lambda current_file: os.path.join(
-                               self.train_config.train_base_dir, current_file),
-                               os.listdir(self.train_config.train_base_dir))
-
-        feed_dict = {"file_names:0": train_files}
+        # Training
+        print('Train:')
+        loop_length = self.train_config.num_examples_per_epoch_train/self.train_config.batch_size
+        feed_dict = {"file_names:0": self._get_file_list(self.train_config.train_base_dir)[0:100]}
         sess.run(self.iterator_intializer, feed_dict=feed_dict)
 
         for k in tqdm(range(loop_length)):
             try:
-                _, merged_summary, total_loss, global_step = sess.run(
-                    [self.training_op,
-                     self.model.merged_summary,
-                     self.model.total_loss,
-                     self.model.global_step])
-
+                _ , total_loss = sess.run([self.training_op,self.model.total_loss])
                 if self.min_loss > total_loss or self.min_loss is None:
                     self.min_loss = total_loss
-                    save_path = self.saver.save(
-                        sess, "model_dir/min_loss_model.ckpt")
-                net_loss += total_loss
+                    save_path = self.saver.save(sess,
+                                                "model_dir/min_loss_model.ckpt")
             except tf.errors.OutOfRangeError:
                 break
 
+
+        # Evaluation
+        print('Eval: ')
+        feed_dict = {"file_names:0": self._get_file_list(self.train_config.eval_base_dir)}
+        sess.run(self.iterator_intializer, feed_dict=feed_dict)
+        loop_length = self.train_config.num_examples_per_epoch_eval/self.train_config.batch_size
+
+        for k in tqdm(range(loop_length)):
+            try:
+                total_loss, merged_summary = sess.run([self.model.total_loss,
+                                                       self.model.merged_summary])
+                net_loss += total_loss
+            except tf.errors.OutOfRangeError:
+                break
             self.writer.add_summary(merged_summary, self.counter)
             self.counter += 1
-
-        # sess.run(evaluation_init_op)
-
-        # total_loss = 0
-        # count = 0
-        # loop_length = self.train_config.num_examples_per_epoch_eval/self.train_config.batch_size
-        # for k in tqdm(range(loop_length)):
-        #     try:
-        #         image_features, input_sequence, target_sequence, input_mask = sess.run(
-        #             next_element)
-        #         feed_dict = {
-        #             "image_features:0": image_features,
-        #             "input_sequence:0": input_sequence,
-        #             "target_sequence:0": target_sequence,
-        #             "input_mask:0": input_mask
-        #         }
-        #         loss, merged_summary = sess.run(
-        #             [self.model.total_loss, self.model.merged_summary], feed_dict=feed_dict)
-        #         total_loss += loss
-        #     except tf.errors.OutOfRangeError:
-        #         break
-        #     #self.writer.add_summary(merged_summary,k)
 
         print("Total loss after %dth iteration is %f. Duration: %ds" %
               (i, net_loss, timeit.default_timer() - start))
@@ -149,8 +143,9 @@ class TrainCaptionModel(object):
         Function to train the model
         """
         print("Running training operation: ")
-
-        with tf.Session() as sess:
+        config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=True)
+        config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+        with tf.Session(config=config) as sess:
             sess.run(tf.global_variables_initializer())
             if restore_model:
                 print('Restoring Model: ')

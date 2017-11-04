@@ -269,26 +269,25 @@ class ImageCaptioning(object):
         # Build overall graph with following conditions
         # 1) In inference mode add a node for generating Image Features
         # 2) In inference mode and test mode compute only softmax scores
-        with tf.device('/cpu:0'):
-            print("Building graph for %s mode" % (self.mode))
+        print("Building graph for %s mode" % (self.mode))
 
-            if self.mode == "inference":
-                self.image_features = self.build_image_features_graph(
-                    self.inference_image)
+        if self.mode == "inference":
+            self.image_features = self.build_image_features_graph(
+                self.inference_image)
 
-            self.image_embeddings = self.build_image_sequence_transformation_graph(
+        self.image_embeddings = self.build_image_sequence_transformation_graph(
                 self.image_features)
-            self.input_sequence_embeddings = self.build_caption_sequence_map_graph(
+        self.input_sequence_embeddings = self.build_caption_sequence_map_graph(
                 self.input_sequence)
-            packed_values = self.build_model_graph(self.image_embeddings,
-                                                   self.input_sequence_embeddings,
-                                                   self.target_sequence,
-                                                   self.input_mask)
+        packed_values = self.build_model_graph(self.image_embeddings,
+                                               self.input_sequence_embeddings,
+                                               self.target_sequence,
+                                               self.input_mask)
 
-            if self.mode == "train":
-                self.total_loss, self.target_cross_entropy_loss, self.target_cross_entropy_loss_weights = packed_values
-                self.global_step = self.setup_global_step()
-            else:
-                self.softmax_score = packed_values
+        if self.mode == "train":
+            self.total_loss, self.target_cross_entropy_loss, self.target_cross_entropy_loss_weights = packed_values
+            self.global_step = self.setup_global_step()
+        else:
+            self.softmax_score = packed_values
 
-            self.merged_summary = tf.summary.merge_all()
+        self.merged_summary = tf.summary.merge_all()

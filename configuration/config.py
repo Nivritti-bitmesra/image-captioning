@@ -40,6 +40,10 @@ class TrainingConfig(object):
         self.eval_base_dir = '/media/srivatsa/982ED6FB2ED6D17C/caption_data/eval'
         self.log_dir = '/home/srivatsa/Desktop/cs231n/ImageCaptioningModel/log_dir/'
 
+        ## Image Features Dimension
+        self.image_features_dimension = 512
+
+        ## No of Epoch
         self.number_of_epoch = 20
 
         ## Batch Size
@@ -51,10 +55,10 @@ class TrainingConfig(object):
         self.num_examples_per_epoch_train = 2400
 
         ## Evaluation dataset size
-        self.num_examples_per_epoch_eval = 9798
+        self.num_examples_per_epoch_eval = 2400
 
         ## Starting Learning Rate
-        self.initial_learning_rate = 0.001
+        self.initial_learning_rate = 0.01
 
         ## Factor by which learning rate is decayed
         self.learning_rate_decay_factor = 0.5
