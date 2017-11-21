@@ -1,11 +1,12 @@
 import numpy as np
 import tensorflow as tf
 from tensorflow_vgg.vgg16 import Vgg16
+from data.setup_vocabulary import load_vocabulary_embedding
 
 
 class ImageCaptioning(object):
 
-    def __init__(self, config, mode):
+    def __init__(self, config, mode, load_vocab=True):
         """
         Intial Setups
         """
@@ -13,11 +14,13 @@ class ImageCaptioning(object):
         if mode == "inference":
             self.vgg_model = Vgg16()
         self.config = config
-        self.intializer = tf.random_uniform_initializer(
-            minval=-self.config.initializer_scale,
-            maxval=self.config.initializer_scale
-        )
+        self.intializer = tf.contrib.layers.xavier_initializer()
+        # self.intializer = tf.random_uniform_initializer(
+        #     minval=-self.config.initializer_scale,
+        #     maxval=self.config.initializer_scale
+        # )
         self.mode = mode
+        self.load_vocab = load_vocab
 
         # All Image Related Variables
 
@@ -37,7 +40,6 @@ class ImageCaptioning(object):
         self.target_sequence = None
         # A int32 tensor with shape [batch_size, padded_length]
         self.input_mask = None
-
 
         # All Losses
         # A float32 scalar
@@ -143,11 +145,18 @@ class ImageCaptioning(object):
         print("Building caption sequence map graph")
         input_sequence_embeddings = None
         with tf.variable_scope("sequence_embedding"):
-            embedding_map = tf.get_variable(
-                name="embedding_map",
-                shape=[self.config.vocab_size, self.config.embedding_size],
-                initializer=self.intializer
-            )
+            if self.load_vocab:
+                embedding_map = tf.get_variable(
+                    initializer=load_vocabulary_embedding(dimension=self.config.embedding_size),
+                    name="embedding_map",
+                    trainable=False)
+                embedding_map = tf.cast(embedding_map,tf.float32)
+            else:
+                embedding_map = tf.get_variable(
+                    name="embedding_map",
+                    shape=[self.config.vocab_size, self.config.embedding_size],
+                    initializer=self.intializer
+                )
             input_sequence_embeddings = tf.nn.embedding_lookup(
                 embedding_map, input_seq)
         return input_sequence_embeddings
@@ -186,8 +195,9 @@ class ImageCaptioning(object):
             # This basically generates initial state of the lstm_cell
             # first, the run one iteration of lstm_cell with image embedding
             # as the input to generate h0 state
+            batch_size = tf.shape(image_embeddings)[0]
             zero_state = lstm_cell.zero_state(
-                batch_size=tf.shape(image_embeddings)[0], dtype=tf.float32)
+                batch_size=batch_size, dtype=tf.float32)
             _, intial_state = lstm_cell(image_embeddings, zero_state)
 
             # Allow the reuse of the LSTM variables
@@ -204,13 +214,12 @@ class ImageCaptioning(object):
                                                     inputs=input_sequence_embeddings,
                                                     sequence_length=sequence_length,
                                                     initial_state=intial_state,
-                                                    # Transfor output of LSTM cell from lstm output space(Basically Hidden states)
                                                     dtype=tf.float32,
                                                     scope=lstm_scope)
 
         # [batch_size, padded_length, output_size] -> [batch_size*padded_length, output_size]
         lstm_outputs = tf.reshape(lstm_outputs, [-1, lstm_cell.output_size])
-
+        # Transform output of LSTM cell from lstm output space(Basically Hidden states)
         # to vocabulary space
         with tf.variable_scope("logits") as logits_scope:
             logits = tf.contrib.layers.fully_connected(
@@ -246,7 +255,6 @@ class ImageCaptioning(object):
                 total_loss = tf.losses.get_total_loss()
 
                 # Add Summaries
-                tf.summary.scalar(self.mode + '_total_loss', total_loss)
                 tf.summary.scalar(
                     self.mode + '_average_batch_loss', average_batch_loss)
 
@@ -276,9 +284,9 @@ class ImageCaptioning(object):
                 self.inference_image)
 
         self.image_embeddings = self.build_image_sequence_transformation_graph(
-                self.image_features)
+            self.image_features)
         self.input_sequence_embeddings = self.build_caption_sequence_map_graph(
-                self.input_sequence)
+            self.input_sequence)
         packed_values = self.build_model_graph(self.image_embeddings,
                                                self.input_sequence_embeddings,
                                                self.target_sequence,
@@ -289,5 +297,8 @@ class ImageCaptioning(object):
             self.global_step = self.setup_global_step()
         else:
             self.softmax_score = packed_values
+
+        for variable in tf.trainable_variables():
+            tf.summary.histogram(variable.name, variable)
 
         self.merged_summary = tf.summary.merge_all()
