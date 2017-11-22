@@ -16,7 +16,10 @@ import tensorflow as tf
 ## Custom Library
 from coco_utils import load_coco_data
 
-output_dir = '/media/srivatsa/982ED6FB2ED6D17C/caption_data'
+output_dir_train = '../dataset/train' ## Set this to the convinient location for output of train shards
+output_dir_test = '../dataset/test' ## Set this to the convinient location for output of test shards
+output_dir_eval = '../dataset/eval' ## Set this to the convinient location for output of eval shards
+
 num_of_threads = 16
 
 
@@ -57,7 +60,7 @@ def _to_sequence_example(vgg16_feature,caption_id):
 
     return sequence_example
 
-def _process_image_file(thread_idx, ranges, name, vgg16_features, caption_ids,num_shards):
+def _process_image_file(thread_idx, ranges, name, vgg16_features, caption_ids,num_shards,output_dir):
     """Processes and saves subset of images as TFRecord files in one thread
 
     Args:
@@ -116,7 +119,7 @@ def _process_image_file(thread_idx, ranges, name, vgg16_features, caption_ids,nu
          (datetime.now(), thread_idx, counter, num_shards_per_batch))
     sys.stdout.flush()
 
-def _process_dataset(name,vgg16_features,caption_ids,num_shards):
+def _process_dataset(name,vgg16_features,caption_ids,num_shards,output_dir):
     """ Process a complete data set and saves it as a TFRecord.
     Args:
       name: Unique identifier specifying the dataset
@@ -131,13 +134,13 @@ def _process_dataset(name,vgg16_features,caption_ids,num_shards):
     for i in xrange(len(spacing) - 1):
         ranges.append([spacing[i],spacing[i+1]])
 
-    #Create a mechanism for monitoring when all thhreads are finished
+    #Create a mechanism for monitoring when all threads are finished
     coord = tf.train.Coordinator()
 
     #Launch thread for each batch
     print("Launching %d threads for spacing: %s"%(num_threads, ranges))
     for thread_idx in xrange(len(ranges)):
-        args = (thread_idx, ranges, name, vgg16_features, caption_ids, num_shards)
+        args = (thread_idx, ranges, name, vgg16_features, caption_ids, num_shards,output_dir)
         print('Starting thread %d'%(thread_idx))
         t = threading.Thread(target=_process_image_file, args=args)
         t.start()
@@ -151,7 +154,7 @@ def _process_dataset(name,vgg16_features,caption_ids,num_shards):
 def main(argv):
     print('Loading Data')
     start = timeit.default_timer()
-    data = load_coco_data(pca_features=True)
+    data = load_coco_data(pca_features=False)
 
     print('Data Loaded in %ds'%(timeit.default_timer()-start))
 
@@ -192,18 +195,18 @@ def main(argv):
     print("Length of test data: %d"%(len(vgg16_features_test)))
     print("Vocabulary Size: %d"%(len(data['idx_to_word'])))
 
-    #start = timeit.default_timer()
-    #print('Preparing tf records for training data: ')
-    #_process_dataset("train", vgg16_features_train,caption_ids_train,256)
-    #print('Completed in %ds'%(timeit.default_timer()-start))
+    start = timeit.default_timer()
+    print('Preparing tf records for training data: ')
+    _process_dataset("train", vgg16_features_train,caption_ids_train,256,output_dir_train)
+    print('Completed in %ds'%(timeit.default_timer()-start))
     start = timeit.default_timer()
     print('Preparing tf records for validation data: ')
-    _process_dataset("val", vgg16_features_val,caption_ids_val,4)
+    _process_dataset("val", vgg16_features_val,caption_ids_val,4,output_dir_eval)
     print('Completed in %ds'%(timeit.default_timer()-start))
-    #start = timeit.default_timer()
-    #print('Preparing tf records for testingdata: ')
-    #_process_dataset("test", vgg16_features_test,caption_ids_test,8)
-    #print('Completed in %ds'%(timeit.default_timer()-start))
+    start = timeit.default_timer()
+    print('Preparing tf records for testingdata: ')
+    _process_dataset("test", vgg16_features_test,caption_ids_test,8,output_dir_test)
+    print('Completed in %ds'%(timeit.default_timer()-start))
 
 if __name__ == "__main__":
     tf.app.run()

@@ -6,7 +6,7 @@ from data.setup_vocabulary import load_vocabulary_embedding
 
 class ImageCaptioning(object):
 
-    def __init__(self, config, mode, load_vocab=True):
+    def __init__(self, config, mode, load_vocab=False):
         """
         Intial Setups
         """
